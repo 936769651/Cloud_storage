@@ -33,3 +33,6 @@ def socket_service():
 def deal_data(conn,addr):
     print('Accept new connection from {0}'.format(addr))
     conn.send('Hi,welcome!')
+
+if __name__ == '__main__':
+    socket_service()
