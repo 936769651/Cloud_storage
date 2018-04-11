@@ -10,8 +10,10 @@ import threading
 import time
 import sys
 import os
+import json
 import struct
 import hashlib
+from collections import OrderedDict
 from Crypto.Cipher import AES
 
 #FILEPATH = '/home/root/trash'
@@ -19,7 +21,8 @@ from Crypto.Cipher import AES
 FILEPATH = '/home/root/work/cloud_storage/server'    #LINUX文件存储路径
 ADDR = ('0.0.0.0',7000)
 TRANSMISSION_END_CODE = 'CLOUD_STORAGE_TRANSMISSION_END.'
-JSONNAME = '.file_info_ser.json'
+JSONNAME = 'file_info_ser.json'
+CHUNKSIZE = 1024*1024*30
 
 def cloud_service():
     ser_socket = socket_bind()
@@ -54,36 +57,47 @@ def get_fileinfo(conn):
     filename = str(filename.strip(b'\x00'),encoding='utf-8')    #将文件名字节去除空字节，并转化为字符串
     return (filename,filesize)
 
+def send_fhead(cli_socket,filename,filesize):
+    '''发送文件头信息，包括文件名和文件大小'''
+    fhead = struct.pack('128sd', filename.encode('utf-8'), filesize)
+    cli_socket.send(fhead)
+
 def new_user(conn,addr):
     print('Accept new connection from {0}'.format(addr))
     send_welcome(conn)      #发送欢迎消息
-    parent_file_name, parent_file_size = client_needto_transfer_file(conn) #接受客户端的父文件头信息，开始
+    parent_file_name, parent_file_size = client_needto_transfer_file(conn) #接受客户端的父文件头信息,父文件名，父文件大小，服务器开始准备获取文件块
 
-    fileuniquevalue_and_number = dict()
-    fileuniquevalue_and_number['parent_file_info'] = (parent_file_name,parent_file_size)
+    fileuniquevalue_and_number = OrderedDict()
+    fileuniquevalue_and_number['Parent_file_info'] = (parent_file_name,parent_file_size)
 
     folder_path = prepare_recv_file(conn)
 
-    print('传输完毕,开始加密文件')
     #获取客户端文件结束，开始加密文件
     #prepare_encrypt_file(folder_path)
     #print('加密用户文件结束')
 
     #校验用户文件，并发送json文件给用户让用户核对
     prepare_check_file(folder_path,fileuniquevalue_and_number)
-    compare_with_client(folder_path)
+    #compare_with_source(conn,folder_path)
 
     conn.close()
+    print('END')
+def compare_with_source(conn,folder_path):
+    '''将服务器获取的json发给用户进行比对'''
+    print('开始与客户端比对文件')
+    json_file_path = os.path.join(folder_path,JSONNAME)
+    send_file(conn,json_file_path)
+    print('比对文件结束')
 
 def prepare_check_file(folder_path,fileunique_and_number):
     '''准备校验根据文件夹路径校验里面所有符合的文件，并将校验值和文件名添加到字典fileunique_and_number'''
     all_file_name_list = os.listdir(folder_path)
-    need_check_file_list = [file_name for file_name in all_file_name_list if file_name.isdigit()]
+    need_check_file_list = sorted( [file_name for file_name in all_file_name_list if file_name.isdigit()] )
     print('需要校验的文件列表', need_check_file_list)
     for check_file in need_check_file_list:
         check_file_path = os.path.join(folder_path, check_file)
         check_value = get_file_check_value(check_file_path) #根据文件绝对路径获取校验值
-        fileunique_and_number[check_value] = check_file #将键值对(校验值:文件名)加入到字典fileunique_and_number中
+        fileunique_and_number[check_value] = int(check_file) #将键值对(校验值:文件名)加入到字典fileunique_and_number中
     print('所有文件校验结束,将结果字典存储到json文件中')
     storage_file_info(folder_path,fileunique_and_number)
 
@@ -116,6 +130,20 @@ def client_needto_transfer_file(conn):
 #         encrypt_file_path = os.path.join(folder_path,encrypt_file)  #获得需要加密的文件的绝对路径
 
 
+def send_file(cli_socket,filepath):
+    '''发送文件信息及文件内容专用函数'''
+    if os.path.exists(filepath) and os.path.isfile(filepath):
+        #fhead = struct.pack('128sd',os.path.basename(filepath).encode('utf-8'),os.path.getsize(filepath))
+        send_fhead(cli_socket,JSONNAME,os.path.getsize(filepath))
+        print('发送的文件名{0},文件大小{1}'.format(os.path.basename(filepath),os.path.getsize(filepath)))
+
+        with open(filepath, 'rb') as fp:
+            while True:
+                data = fp.read(1024)
+                if not data:
+                    print('{0} 文件发送完毕...'.format(filepath))
+                    break
+                cli_socket.send(data)
 
 def prepare_recv_file(conn):
     '''在获取文件文件前进行准备工作，如创建临时文件夹'''
