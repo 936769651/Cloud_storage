@@ -11,12 +11,15 @@ import time
 import sys
 import os
 import struct
-#from Crypto.Cipher import AES
+import hashlib
+from Crypto.Cipher import AES
 
 #FILEPATH = '/home/root/trash'
-FILEPATH = r'E:\service'
+#FILEPATH = r'E:\service'    #windows文件存储
+FILEPATH = '/home/root/work/cloud_storage/server'    #LINUX文件存储路径
 ADDR = ('0.0.0.0',7000)
 TRANSMISSION_END_CODE = 'CLOUD_STORAGE_TRANSMISSION_END.'
+JSONNAME = '.file_info_ser.json'
 
 def cloud_service():
     ser_socket = socket_bind()
@@ -54,10 +57,65 @@ def get_fileinfo(conn):
 def new_user(conn,addr):
     print('Accept new connection from {0}'.format(addr))
     send_welcome(conn)      #发送欢迎消息
+    parent_file_name, parent_file_size = client_needto_transfer_file(conn) #接受客户端的父文件头信息，开始
 
-    prepare_recv_file(conn)
+    fileuniquevalue_and_number = dict()
+    fileuniquevalue_and_number['parent_file_info'] = (parent_file_name,parent_file_size)
+
+    folder_path = prepare_recv_file(conn)
+
+    print('传输完毕,开始加密文件')
+    #获取客户端文件结束，开始加密文件
+    #prepare_encrypt_file(folder_path)
+    #print('加密用户文件结束')
+
+    #校验用户文件，并发送json文件给用户让用户核对
+    prepare_check_file(folder_path,fileuniquevalue_and_number)
+    compare_with_client(folder_path)
+
     conn.close()
-    print('连接关闭')
+
+def prepare_check_file(folder_path,fileunique_and_number):
+    '''准备校验根据文件夹路径校验里面所有符合的文件，并将校验值和文件名添加到字典fileunique_and_number'''
+    all_file_name_list = os.listdir(folder_path)
+    need_check_file_list = [file_name for file_name in all_file_name_list if file_name.isdigit()]
+    print('需要校验的文件列表', need_check_file_list)
+    for check_file in need_check_file_list:
+        check_file_path = os.path.join(folder_path, check_file)
+        check_value = get_file_check_value(check_file_path) #根据文件绝对路径获取校验值
+        fileunique_and_number[check_value] = check_file #将键值对(校验值:文件名)加入到字典fileunique_and_number中
+    print('所有文件校验结束,将结果字典存储到json文件中')
+    storage_file_info(folder_path,fileunique_and_number)
+
+def get_file_check_value(filepath):
+    '''根据文件路径获取这个文件的校验值并返回'''
+    check = hashlib.sha256()  # 使用sha256校验值作为文件唯一的身份表示
+    with open(filepath, 'rb') as file:
+        data = file.read(CHUNKSIZE) #从文件读取30M,因为文件最大为CHUNKSIZE,所以如果文件没问题，即读取文件所有内容
+        check.update(data)
+        check_value = check.hexdigest()
+    return check_value
+
+def storage_file_info(storage_file_path,fileuniquevalue_and_number):
+    '''将生成的文件排序名及效验值的字典保存为json'''
+    with open(os.path.join(storage_file_path,JSONNAME),'w') as fp_json:
+        fp_json.write(json.dumps(fileuniquevalue_and_number))
+    print('保存json成功')
+
+def client_needto_transfer_file(conn):
+    '''代码暂时和get_fileinfo函数相同'''
+    parent_file_name, parent_file_size = get_fileinfo(conn)
+    print('客户端发送需要传输文件的请求，文件名{0}，文件大小{1}'.format(parent_file_name,parent_file_size))
+    return (parent_file_name,parent_file_size)
+
+# def prepare_encrypt_file(folder_path):
+#     all_file_name_list = os.listdir(folder_path)
+#     need_encrypt_file = [file_name for file_name in all_file_name_list if file_name.isdigit()]
+#     print('需要加密的文件列表',need_encrypt_file)
+#     for encrypt_file in need_encrypt_file:
+#         encrypt_file_path = os.path.join(folder_path,encrypt_file)  #获得需要加密的文件的绝对路径
+
+
 
 def prepare_recv_file(conn):
     '''在获取文件文件前进行准备工作，如创建临时文件夹'''
@@ -72,6 +130,7 @@ def prepare_recv_file(conn):
             print('获得传输结束指令')
             break
     print('传输结束')
+    return folder_path
 
 def judge_trasmission_end(filename,filesize):
     if filename == TRANSMISSION_END_CODE and filesize == 0:

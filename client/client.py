@@ -14,9 +14,10 @@ import json
 
 #ADDR = ('192.168.1.103',7000)
 ADDR = ('127.0.0.1',7000)
-FILEPATH = r'E:\client\mv.rmvb'    #代处理文件路径
+#FILEPATH = r'E:\client\mv.rmvb'    #windows代处理文件路径
+FILEPATH = '/home/root/work/cloud_storage/client/data.txt'    #linux代处理文件路径
 CHUNKSIZE = 1024*1024*30        #每块文件30M
-JSONNAME = '.file_info.json'
+JSONNAME = 'file_info.json'
 TRANSMISSION_END_CODE = 'CLOUD_STORAGE_TRANSMISSION_END.'
 
 def cloud_client():
@@ -24,6 +25,7 @@ def cloud_client():
     cli_socket = socket_bind()
     recv_welcome(cli_socket)
     folder_name = deal_file(FILEPATH)   #处理文件，并返回处理完文件的文件夹名，以时间戳命名
+    send_parent_file_info(cli_socket,FILEPATH)
     folder_path = os.path.join(os.path.split(FILEPATH)[0],folder_name)  #获取存储分割文件的绝对路径
     send_file_in_folder(cli_socket,folder_path)
     cli_socket.close()
@@ -44,6 +46,11 @@ def cloud_client():
 #             cli_socket.send(data)
 #         cli_socket.close()
 
+def send_parent_file_info(cli_socket,filepath):
+    '''发送父文件头信息，提醒服务器开始准备接受文件'''
+    send_fhead(cli_socket,os.path.basename(filepath),os.path.getsize(filepath))
+    print('发送父文件头信息成功')
+
 def send_file_in_folder(cli_socket,folder_path):
     '''发送指定文件夹里被被分割完的文件，文件名必须是数字，否则不发送'''
     all_file_name_list = os.listdir(folder_path)
@@ -57,16 +64,23 @@ def send_file_in_folder(cli_socket,folder_path):
     send_trasmission_end_code(cli_socket)
 
 def send_trasmission_end_code(cli_socket):
-    fhead = struct.pack('128sd', TRANSMISSION_END_CODE.encode('utf-8'), 0)
-    cli_socket.send(fhead)
+    #fhead = struct.pack('128sd', TRANSMISSION_END_CODE.encode('utf-8'), 0)
+    send_fhead(TRANSMISSION_END_CODE.encode('utf-8'),0)
+    #cli_socket.send(fhead)
     print('发送传输结束指令')
+
+def send_fhead(cli_socket,filename,filesize):
+    '''发送文件头信息，包括文件名和文件大小'''
+    fhead = struct.pack('128sd', os.path.basename(filepath).encode('utf-8'), os.path.getsize(filepath))
+    cli_socket.send(fhead)
 
 def send_file(cli_socket,filepath):
     '''发送文件信息及文件内容专用函数'''
     if os.path.exists(filepath) and os.path.isfile(filepath):
-        fhead = struct.pack('128sd',os.path.basename(filepath).encode('utf-8'),os.path.getsize(filepath))
+        #fhead = struct.pack('128sd',os.path.basename(filepath).encode('utf-8'),os.path.getsize(filepath))
+        send_fhead(os.path.basename(filepath).encode('utf-8'),os.path.getsize(filepath))
         print('发送的文件名{0},文件大小{1}'.format(os.path.basename(filepath),os.path.getsize(filepath)))
-        cli_socket.send(fhead)
+
 
         fp = open(filepath,'rb')
         while True:
@@ -82,7 +96,7 @@ def deal_file(filepath):
         print('{0} 该文件不符合条件，请检查'.format(filepath))
         return
     parent_path = os.path.split(filepath)[0]
-    folder_name = '.' + str(int(time.time()))   #以时间戳作为临时文件夹名字
+    folder_name = str(int(time.time()))   #以时间戳作为临时文件夹名字
     storage_split_file_path = os.path.join(parent_path,folder_name)
     os.mkdir(storage_split_file_path)
     split_file(filepath,storage_split_file_path)
