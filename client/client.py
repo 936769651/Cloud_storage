@@ -12,19 +12,21 @@ import time
 import hashlib
 import json
 
-ADDR = ('192.168.1.103',7000)
-#ADDR = ('127.0.0.1',7000)
-FILEPATH = r'E:\service\mv.rmvb'    #代处理文件路径
+#ADDR = ('192.168.1.103',7000)
+ADDR = ('127.0.0.1',7000)
+FILEPATH = r'E:\client\mv.rmvb'    #代处理文件路径
 CHUNKSIZE = 1024*1024*30        #每块文件30M
 JSONNAME = '.file_info.json'
+TRANSMISSION_END_CODE = 'CLOUD_STORAGE_TRANSMISSION_END.'
+
 def cloud_client():
     '''主程序'''
-    #cli_socket = socket_bind()
-    #recv_welcome(cli_socket)
+    cli_socket = socket_bind()
+    recv_welcome(cli_socket)
     folder_name = deal_file(FILEPATH)   #处理文件，并返回处理完文件的文件夹名，以时间戳命名
-    folder_path = os.path.join(os.path.split(FILEPATH)[0],folder_name)
-    send_file_in_folder(folder_path)
-    #cli_socket.close()
+    folder_path = os.path.join(os.path.split(FILEPATH)[0],folder_name)  #获取存储分割文件的绝对路径
+    send_file_in_folder(cli_socket,folder_path)
+    cli_socket.close()
 # def cloud_client():
 #     cli_socket = socket_bind()
 #     recv_welcome(cli_socket)
@@ -42,7 +44,7 @@ def cloud_client():
 #             cli_socket.send(data)
 #         cli_socket.close()
 
-def send_file_in_folder(folder_path):
+def send_file_in_folder(cli_socket,folder_path):
     '''发送指定文件夹里被被分割完的文件，文件名必须是数字，否则不发送'''
     all_file_name_list = os.listdir(folder_path)
     split_file_name_list = list()    #获取所有以数字命名的文件
@@ -50,22 +52,29 @@ def send_file_in_folder(folder_path):
         if file_name.isdigit():
             split_file_name_list.append(file_name)
     for file_name in split_file_name_list:
-        send_file_path = os.path.join(folder_path,file_name)
+        send_file_path = os.path.join(folder_path,file_name)    #获取要发送的文件的绝对路径
+        send_file(cli_socket,send_file_path)         #发送文件专用函数
+    send_trasmission_end_code(cli_socket)
 
+def send_trasmission_end_code(cli_socket):
+    fhead = struct.pack('128sd', TRANSMISSION_END_CODE.encode('utf-8'), 0)
+    cli_socket.send(fhead)
+    print('发送传输结束指令')
 
-def send_file(conn,filepath):
+def send_file(cli_socket,filepath):
     '''发送文件信息及文件内容专用函数'''
     if os.path.exists(filepath) and os.path.isfile(filepath):
         fhead = struct.pack('128sd',os.path.basename(filepath).encode('utf-8'),os.path.getsize(filepath))
-        conn.send(fhead)
+        print('发送的文件名{0},文件大小{1}'.format(os.path.basename(filepath),os.path.getsize(filepath)))
+        cli_socket.send(fhead)
 
         fp = open(filepath,'rb')
         while True:
             data = fp.read(1024)
             if not data:
-                print('{0} 文件获取完毕...'.format(filepath))
+                print('{0} 文件发送完毕...'.format(filepath))
                 break
-            conn.send(data)
+            cli_socket.send(data)
 
 def deal_file(filepath):
     '''开始处理文件，最后返回分割文件保存路径'''
