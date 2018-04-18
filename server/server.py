@@ -14,11 +14,11 @@ import json
 import struct
 import hashlib
 from collections import OrderedDict
-from Crypto.Cipher import AES
+#from Crypto.Cipher import AES
 
-#FILEPATH = '/home/root/trash'
-#FILEPATH = r'E:\service'    #windows文件存储
-FILEPATH = '/home/root/work/cloud_storage/server'    #LINUX文件存储路径
+
+FILEPATH = r'E:\service'    #windows文件存储
+#FILEPATH = '/home/root/work/cloud_storage/server'    #LINUX文件存储路径
 ADDR = ('0.0.0.0',7000)
 TRANSMISSION_END_CODE = 'CLOUD_STORAGE_TRANSMISSION_END.'
 JSONNAME = 'file_info_ser.json'
@@ -72,21 +72,19 @@ def new_user(conn,addr):
 
     folder_path = prepare_recv_file(conn)
 
-    #获取客户端文件结束，开始加密文件
-    #prepare_encrypt_file(folder_path)
-    #print('加密用户文件结束')
 
     #校验用户文件，并发送json文件给用户让用户核对
     prepare_check_file(folder_path,fileuniquevalue_and_number)
-    #compare_with_source(conn,folder_path)
+    confirm_file_correct(conn,folder_path)
 
     conn.close()
     print('END')
-def compare_with_source(conn,folder_path):
+def confirm_file_correct(conn,folder_path):
     '''将服务器获取的json发给用户进行比对'''
-    print('开始与客户端比对文件')
+    print('开始与客户端比对json文件')
     json_file_path = os.path.join(folder_path,JSONNAME)
-    send_file(conn,json_file_path)
+    check_value = get_file_check_value(json_file_path)
+    conn.send(check_value.encode('utf-8'))
     print('比对文件结束')
 
 def prepare_check_file(folder_path,fileunique_and_number):
@@ -101,6 +99,14 @@ def prepare_check_file(folder_path,fileunique_and_number):
     print('所有文件校验结束,将结果字典存储到json文件中')
     storage_file_info(folder_path,fileunique_and_number)
 
+# def check_func(filepath):
+#     '''校验专用函数(sha256)'''
+#     check = hashlib.sha256()
+#     with open(filepath,'rb') as file:
+#         data = file.read(CHUNKSIZE)
+#         check.update(data)
+#         check_value = check.hexdigest()
+#     return check_value
 def get_file_check_value(filepath):
     '''根据文件路径获取这个文件的校验值并返回'''
     check = hashlib.sha256()  # 使用sha256校验值作为文件唯一的身份表示
