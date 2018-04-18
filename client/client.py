@@ -15,8 +15,8 @@ from collections import OrderedDict
 
 #ADDR = ('192.168.1.103',7000)
 ADDR = ('127.0.0.1',7000)
-#FILEPATH = r'E:\client\mv.rmvb'    #windows代处理文件路径
-FILEPATH = '/home/root/work/cloud_storage/client/data.txt'    #linux代处理文件路径
+FILEPATH = r'E:\client\mv.rmvb'    #windows代处理文件路径
+#FILEPATH = '/home/root/work/cloud_storage/client/data.txt'    #linux代处理文件路径
 CHUNKSIZE = 1024*1024*30        #每块文件30M
 JSONNAME = 'file_info.json'
 TRANSMISSION_END_CODE = 'CLOUD_STORAGE_TRANSMISSION_END.'
@@ -30,30 +30,33 @@ def cloud_client():
     folder_path = os.path.join(os.path.split(FILEPATH)[0],folder_name)  #获取存储分割文件的绝对路径
     send_file_in_folder(cli_socket,folder_path)
 
-    #confirm_file_correct()      #获取由服务器发来的json文件，与自身的json文件进行比较，确认文件的正确性
+    confirm_file_correct(cli_socket,folder_path)      #获取由服务器发来的json文件的校验值，与自身的json文件校验值进行比较，确认文件的正确性
     cli_socket.close()
     print('END')
-# def cloud_client():
-#     cli_socket = socket_bind()
-#     recv_welcome(cli_socket)
-#     if os.path.isfile(FILEPATH):
-#         fileinfo_size = struct.calcsize('128sd')
-#         fhead = struct.pack('128sd',os.path.basename(FILEPATH).encode('utf-8'),os.stat(FILEPATH).st_size)
-#         cli_socket.send(fhead)
-#
-#         fp = open(FILEPATH,'rb')
-#         while True:
-#             data = fp.read(1024)
-#             if not data:
-#                 print('{0} file send over...'.format(FILEPATH))
-#                 break
-#             cli_socket.send(data)
-#         cli_socket.close()
+
+def confirm_file_correct(cli_socket,folder_path):
+    json_file_path = os.path.join(folder_path,JSONNAME)
+    client_check_value = get_file_check_value(json_file_path)
+    server_check_value = cli_socket.recv(1024)  #获取来自服务器的json文件的校验值
+    server_check_value = str(server_check_value,encoding='utf-8').strip()   #将获取的server_check_value从字节码转化为字符串,并去掉空白
+    if server_check_value == client_check_value:
+        print('文件传输完整，结束')
+        return True
+    else:
+        print('文件传输有损坏，请重新传输')
+        return False
 
 def send_parent_file_info(cli_socket,filepath):
     '''发送父文件头信息，提醒服务器开始准备接受文件'''
     send_fhead(cli_socket,os.path.basename(filepath),os.path.getsize(filepath))
     print('发送父文件头信息成功')
+
+def json_compare_with_server(conn,folder_path):
+    print('开始与服务端比对json文件')
+    json_file_path = os.path.join(folder_path, JSONNAME)
+    check_value = get_file_check_value(json_file_path)
+    conn.send(check_value)
+    print('比对文件结束')
 
 def send_file_in_folder(cli_socket,folder_path):
     '''发送指定文件夹里被被分割完的文件，文件名必须是数字，否则不发送'''
@@ -122,6 +125,15 @@ def deal_file(filepath):
     os.mkdir(storage_split_file_path)
     split_file(filepath,storage_split_file_path)
     return folder_name
+
+def get_file_check_value(filepath):
+    '''根据文件路径获取这个文件的校验值并返回'''
+    check = hashlib.sha256()  # 使用sha256校验值作为文件唯一的身份表示
+    with open(filepath, 'rb') as file:
+        data = file.read(CHUNKSIZE) #从文件读取30M,因为文件最大为CHUNKSIZE,所以如果文件没问题，即读取文件所有内容
+        check.update(data)
+        check_value = check.hexdigest()
+    return check_value
 
 def split_file(filepath,storage_split_file_path):
     '''分割文件'''
